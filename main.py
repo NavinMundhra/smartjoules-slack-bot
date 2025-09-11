@@ -23,6 +23,7 @@ SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE")
 SHEET_URL = os.getenv("SHEET_URL")
+MODEL = "google/gemini-pro-1.5"  # Default model
 
 # -------------------------------
 # Google Sheets Loader
@@ -54,16 +55,26 @@ def read_all_sheets(service_account_file: str, spreadsheet_url: str) -> dict:
 def ask_sales_insights_openrouter(df: pd.DataFrame, question: str) -> str:
     try:
         # Convert DataFrame to CSV string for the prompt
-        data_text = df.head(50).to_csv(index=False)
+        data_text = df.to_csv(index=False)
 
         prompt = f"""
-You are a helpful sales analyst.
-Dataset (CSV, first 50 rows):
+You are an expert business data analyst working for a sales operations team.
+Your responsibilities:
+- Interpret data accurately, focusing on trends, anomalies, and pipeline progress.
+- Provide **actionable recommendations**, not just summaries.
+- Use structured, business-oriented language.
+- Where helpful, suggest specific charts (time-series, bar charts, funnel plots).
+- Keep answers concise but insightful, like an executive summary.
+
+Dataset (CSV, all rows):
 {data_text}
 
-Question: {question}
+User Question: {question}
 
-Provide a clear, business-style answer with insights.
+Respond in the following format:
+1. **Key Findings** (3 to 5 bullet points)
+2. **Notable Anomalies**
+3. **Recommendations**.
 """
         
         # Method 1: Using OpenAI client with OpenRouter (recommended)
@@ -78,7 +89,7 @@ Provide a clear, business-style answer with insights.
                     "HTTP-Referer": "https://your-app.com",  # Optional: replace with your site
                     "X-Title": "Slack Sales Bot",  # Optional: your app name
                 },
-                model="openai/gpt-4o-mini",  # More reliable and cost-effective model
+                model=MODEL,  # More reliable and cost-effective model
                 messages=[
                     {"role": "user", "content": prompt}
                 ]
