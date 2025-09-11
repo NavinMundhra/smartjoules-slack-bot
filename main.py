@@ -23,7 +23,6 @@ SLACK_SIGNING_SECRET = os.getenv("SLACK_SIGNING_SECRET")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 SERVICE_ACCOUNT_FILE = os.getenv("SERVICE_ACCOUNT_FILE")
 SHEET_URL = os.getenv("SHEET_URL")
-MODEL = "google/gemini-pro-1.5"  # Default model
 
 # -------------------------------
 # Google Sheets Loader
@@ -55,26 +54,16 @@ def read_all_sheets(service_account_file: str, spreadsheet_url: str) -> dict:
 def ask_sales_insights_openrouter(df: pd.DataFrame, question: str) -> str:
     try:
         # Convert DataFrame to CSV string for the prompt
-        data_text = df.to_csv(index=False)
+        data_text = df.head(50).to_csv(index=False)
 
         prompt = f"""
-You are an expert business data analyst working for a sales operations team.
-Your responsibilities:
-- Interpret data accurately, focusing on trends, anomalies, and pipeline progress.
-- Provide **actionable recommendations**, not just summaries.
-- Use structured, business-oriented language.
-- Where helpful, suggest specific charts (time-series, bar charts, funnel plots).
-- Keep answers concise but insightful, like an executive summary.
-
-Dataset (CSV, all rows):
+You are a helpful sales analyst.
+Dataset (CSV, first 50 rows):
 {data_text}
 
-User Question: {question}
+Question: {question}
 
-Respond in the following format:
-1. **Key Findings** (3 to 5 bullet points)
-2. **Notable Anomalies**
-3. **Recommendations**.
+Provide a clear, business-style answer with insights.
 """
         
         # Method 1: Using OpenAI client with OpenRouter (recommended)
@@ -89,7 +78,7 @@ Respond in the following format:
                     "HTTP-Referer": "https://your-app.com",  # Optional: replace with your site
                     "X-Title": "Slack Sales Bot",  # Optional: your app name
                 },
-                model=MODEL,  # More reliable and cost-effective model
+                model="openai/gpt-4o-mini",  # More reliable and cost-effective model
                 messages=[
                     {"role": "user", "content": prompt}
                 ]
@@ -165,15 +154,29 @@ def post_message(channel: str, text: str):
     try:
         url = "https://slack.com/api/chat.postMessage"
         headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
-        payload = {"channel": channel, "text": text}
+        payload = {
+            "channel": channel, 
+            "text": text,
+            "unfurl_links": False,  # Prevent auto-unfurling
+            "unfurl_media": False   # Prevent media unfurling
+        }
         response = requests.post(url, headers=headers, json=payload)
         
-        if response.status_code != 200:
-            print(f"Error posting to Slack: {response.text}")
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("ok"):
+                print(f"✅ Successfully posted message to {channel}")
+                return result
+            else:
+                print(f"❌ Slack API error: {result.get('error')}")
+                return None
+        else:
+            print(f"❌ HTTP Error posting to Slack: {response.status_code} - {response.text}")
+            return None
         
-        return response.json()
     except Exception as e:
-        print(f"Error posting message: {e}")
+        print(f"❌ Exception posting message: {e}")
+        return None
 
 # -------------------------------
 # FastAPI App
