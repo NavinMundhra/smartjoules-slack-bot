@@ -1,0 +1,18 @@
+# Virtual environment
+venv/
+*.pyc
+__pycache__/
+
+# Environment files
+.env
+
+# Google Service Account
+service_account.json
+
+# OS-specific files
+.DS_Store
+.localized
+
+# IDE files
+.vscode/
+.idea/
