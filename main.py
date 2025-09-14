@@ -150,7 +150,7 @@ def verify_slack_signature(request: Request, body: bytes):
     if not hmac.compare_digest(my_signature, slack_signature):
         raise HTTPException(status_code=400, detail="Invalid Slack signature")
 
-def post_message(channel: str, text: str):
+def post_message(channel: str, text: str, thread_ts: str = None):
     try:
         url = "https://slack.com/api/chat.postMessage"
         headers = {"Authorization": f"Bearer {SLACK_BOT_TOKEN}"}
@@ -160,6 +160,11 @@ def post_message(channel: str, text: str):
             "unfurl_links": False,  # Prevent auto-unfurling
             "unfurl_media": False   # Prevent media unfurling
         }
+        
+        # Add thread_ts if provided to reply in thread
+        if thread_ts:
+            payload["thread_ts"] = thread_ts
+            
         response = requests.post(url, headers=headers, json=payload)
         
         if response.status_code == 200:
@@ -201,6 +206,39 @@ async def slack_events(request: Request):
         if event.get("type") == "app_mention":
             user_question = event.get("text", "")
             channel = event.get("channel")
+            user_id = event.get("user")
+            event_ts = event.get("ts")  # Original message timestamp for threading
+            
+            # Skip if this is our own message (bot responding to itself)
+            if event.get("bot_id"):
+                print("🤖 Skipping bot message to avoid loops")
+                return {"ok": True}
+            
+            # Skip if message is empty or too short
+            if len(user_question.strip()) < 3:
+                print("📝 Skipping too short message")
+                return {"ok": True}
+            
+            # Create a simple message tracker to avoid duplicates
+            message_key = f"{channel}_{user_id}_{event_ts}"
+            
+            # Simple in-memory cache to track recent messages (last 100)
+            if not hasattr(app, '_processed_messages'):
+                app._processed_messages = set()
+            
+            # Clean old messages if cache gets too large
+            if len(app._processed_messages) > 100:
+                app._processed_messages.clear()
+            
+            # Check if we've already processed this exact message
+            if message_key in app._processed_messages:
+                print(f"🔄 Already processed message: {message_key}")
+                return {"ok": True}
+            
+            # Add to processed messages
+            app._processed_messages.add(message_key)
+            
+            print(f"📨 Processing new message from user {user_id} in channel {channel}")
 
             # Load Google Sheets data
             all_sheets = read_all_sheets(SERVICE_ACCOUNT_FILE, SHEET_URL)
@@ -211,8 +249,8 @@ async def slack_events(request: Request):
             else:
                 answer = "⚠️ Could not find 'Pipeline' sheet or sheet is empty."
 
-            # Post response to Slack
-            post_message(channel, answer)
+            # Post response to Slack IN THREAD
+            post_message(channel, answer, thread_ts=event_ts)
 
         return {"ok": True}
         
