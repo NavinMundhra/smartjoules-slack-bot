@@ -207,7 +207,8 @@ async def slack_events(request: Request):
             user_question = event.get("text", "")
             channel = event.get("channel")
             user_id = event.get("user")
-            event_ts = event.get("ts")  # Original message timestamp for threading
+            event_ts = event.get("ts")  # Original message timestamp
+            thread_ts = event.get("thread_ts")  # If already in a thread
             
             # Skip if this is our own message (bot responding to itself)
             if event.get("bot_id"):
@@ -219,10 +220,22 @@ async def slack_events(request: Request):
                 print("📝 Skipping too short message")
                 return {"ok": True}
             
-            # Create a simple message tracker to avoid duplicates
+            # Get user permissions
+            user_info = get_user_permissions(user_id)
+            print(f"👤 User: {user_info['name']} ({user_info['role']}) - Permissions: {user_info['permissions']}")
+            
+            # Check if user has any permissions
+            if not user_info['permissions']:
+                unauthorized_msg = f"🚫 Sorry, you don't have permission to access company data. Please contact your administrator."
+                # Use thread_ts if already in thread, otherwise event_ts for new thread
+                reply_ts = thread_ts or event_ts
+                post_message(channel, unauthorized_msg, thread_ts=reply_ts)
+                return {"ok": True}
+            
+            # Create message key for deduplication (but allow multiple questions in same thread)
             message_key = f"{channel}_{user_id}_{event_ts}"
             
-            # Simple in-memory cache to track recent messages (last 100)
+            # Simple in-memory cache to track recent messages
             if not hasattr(app, '_processed_messages'):
                 app._processed_messages = set()
             
@@ -238,19 +251,34 @@ async def slack_events(request: Request):
             # Add to processed messages
             app._processed_messages.add(message_key)
             
-            print(f"📨 Processing new message from user {user_id} in channel {channel}")
+            print(f"📨 Processing message from {user_info['name']} in channel {channel}")
 
             # Load Google Sheets data
             all_sheets = read_all_sheets(SERVICE_ACCOUNT_FILE, SHEET_URL)
-            df = all_sheets.get("Pipeline")
-
-            if df is not None and not df.empty:
-                answer = ask_sales_insights_openrouter(df, user_question)
+            
+            # Filter sheets based on user permissions
+            available_sheets = filter_sheets_by_permission(all_sheets, user_info['permissions'])
+            
+            if not available_sheets:
+                answer = f"⚠️ Sorry {user_info['name']}, you don't have access to any data sheets that are currently available."
             else:
-                answer = "⚠️ Could not find 'Pipeline' sheet or sheet is empty."
+                # Determine main sheet based on user role
+                main_sheet = None
+                if "pipeline" in [p.lower() for p in user_info['permissions']] or "all" in user_info['permissions']:
+                    main_sheet = "Pipeline"
+                else:
+                    # Use first available sheet as main sheet
+                    main_sheet = list(available_sheets.keys())[0]
+                
+                print(f"📊 Available sheets for {user_info['name']}: {list(available_sheets.keys())}")
+                print(f"🎯 Main sheet: {main_sheet}")
+                
+                # Get AI response with filtered data
+                answer = ask_sales_insights_openrouter(available_sheets, main_sheet, user_question, user_info)
 
-            # Post response to Slack IN THREAD
-            post_message(channel, answer, thread_ts=event_ts)
+            # Post response to Slack - continue in same thread if it exists
+            reply_ts = thread_ts or event_ts  # Use existing thread or create new one
+            post_message(channel, answer, thread_ts=reply_ts)
 
         return {"ok": True}
         
