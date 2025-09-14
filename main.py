@@ -12,6 +12,21 @@ from starlette.responses import JSONResponse
 from dotenv import load_dotenv
 from openai import OpenAI
 
+
+USER_ACCESS_CONTROL = {
+    "U08LUFKQ03D": {        # Arjun (CEO)
+        "name": "Kaustubh",
+        "role": "CTO", 
+        "permissions": ["all"]  # Access to everything
+    },
+    "U456HR": {         # Ameya (HR Head)
+        "name": "Ameya",
+        "role": "HR Head",
+        "permissions": ["hr", "employees", "payroll", "recruitment"]
+    }
+    # ... more users
+}
+
 # Load environment variables
 load_dotenv()
 
@@ -27,6 +42,45 @@ SHEET_URL = os.getenv("SHEET_URL")
 # -------------------------------
 # Google Sheets Loader
 # -------------------------------
+
+
+def filter_sheets_by_permission(all_sheets: dict, user_permissions: list) -> dict:
+    # 1. CEO Check - "all" permission gives access to everything
+    if "all" in user_permissions:
+        return all_sheets
+    
+    # 2. No Permission Check - empty list means no access
+    if not user_permissions:
+        return {}
+    
+    # 3. Filter sheets based on permission matching
+    filtered_sheets = {}
+    for sheet_name, sheet_data in all_sheets.items():
+        for permission in user_permissions:
+            if (permission.lower() in sheet_name.lower() or sheet_name.lower() in permission.lower() 
+                or sheet_name.lower().startswith(permission.lower()) 
+                or permission.lower().startswith(sheet_name.lower())):
+
+                filtered_sheets[sheet_name] = sheet_data
+                break
+    
+    return filtered_sheets
+
+def get_user_permissions(user_id: str) -> dict:
+    # Looks up user in USER_ACCESS_CONTROL dictionary
+    user_info = USER_ACCESS_CONTROL.get(user_id)
+    
+    if user_info:
+        # User found - return their permissions
+        return user_info
+    else:
+        # User not found - return guest with no permissions
+        return {
+            "name": "Guest User",
+            "role": "Guest", 
+            "permissions": []
+        }
+    
 def read_all_sheets(service_account_file: str, spreadsheet_url: str) -> dict:
     try:
         SCOPES = [
