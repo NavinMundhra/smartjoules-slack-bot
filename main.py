@@ -21,15 +21,15 @@ load_dotenv()
 # User Access Control
 # -------------------------------
 USER_ACCESS_CONTROL = {
-    "U08LUFKQ03D": {        # Arjun (CEO)
+    "U08LUFKQ03D": {       
         "name": "Kaustubh",
         "role": "CTO", 
         "permissions": ["all"]  # Access to everything
     },
-    "U456HR": {         # Ameya (HR Head)
-        "name": "Ameya",
-        "role": "HR Head",
-        "permissions": ["hr", "employees", "payroll", "recruitment"]
+    "U099EAAA947": {        
+        "name": "Navin",
+        "role": "Analytics Manager",
+        "permissions": ["pipeline"]
     }
     # Add more users as needed
 }
